@@ -6,6 +6,7 @@ import { PRESETS } from "@/data/serverFilters";
 import FilterMenu from "@/components/FilterMenu.vue";
 import ActiveFilters from "@/components/ActiveFilters.vue";
 import ConfirmTyped from "@/components/ConfirmTyped.vue";
+import SavedViewsMenu from "@/components/SavedViewsMenu.vue";
 
 const store = useTaskStore();
 const toggleable = COLUMNS.filter((c) => !c.always);
@@ -97,6 +98,8 @@ const presetLabel = computed(
         </span>
 
         <FilterMenu />
+
+        <SavedViewsMenu />
 
         <!-- Column visibility means nothing on a board or a calendar. -->
         <v-menu v-if="store.supportsColumns" :close-on-content-click="false" location="bottom end" offset="4">

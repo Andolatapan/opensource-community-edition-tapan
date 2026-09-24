@@ -348,6 +348,41 @@ export async function savePreference(key, value) {
 }
 
 /**
+ * Saved views. Each call answers with the page's full list of views, which the
+ * store swaps in whole. A refusal (duplicate name, too many views, a view that
+ * was deleted in another tab) comes back as a non-2xx with a readable message.
+ */
+async function viewRequest(url, fields) {
+    try {
+        const { data } = await post(url, fields);
+        if (!data?.ok) throw new Error(data?.message || "Could not save the view.");
+        return data;
+    } catch (e) {
+        throw new Error(e?.response?.data?.message || e?.message || "Could not save the view.");
+    }
+}
+
+/** Create a view, or overwrite an existing one's settings when `id` is given. */
+export function saveSavedView(page, { id = 0, name, state }) {
+    const fields = { page, id: String(id || 0), state: JSON.stringify(state) };
+    if (name !== undefined) fields.name = name;
+    return viewRequest("task-views/save-view", fields);
+}
+
+export function renameSavedView(page, id, name) {
+    return viewRequest("task-views/rename-view", { page, id: String(id), name });
+}
+
+export function deleteSavedView(page, id) {
+    return viewRequest("task-views/delete-view", { page, id: String(id) });
+}
+
+/** `id` 0 clears the page's default. */
+export function setDefaultSavedView(page, id) {
+    return viewRequest("task-views/set-default-view", { page, id: String(id || 0) });
+}
+
+/**
  * Rename a task, through the same endpoint the task-detail page's title editor
  * uses — so the change lands in the activity feed and the notifications exactly
  * as it does there.

@@ -126,17 +126,34 @@ function reload() {
 onMounted(() => {
     store.page = page.value;
 
-    // Filter preset from an Overview tile (?f=overdue|unassigned|completed).
-    const preset = new URLSearchParams(window.location.search).get("f");
-    if (preset === "overdue") store.due = ["overdue"];
-    else if (preset === "unassigned") store.assignee = ["Unassigned"];
-    else if (preset === "completed") store.status = ["closed"];
-    else if (preset?.startsWith("status:")) store.status = [preset.slice(7)];
-    else if (preset?.startsWith("priority:")) store.priority = [preset.slice(9)];
-
     // Subtask View opens grouped by task group — the tree is easier to read
     // when it is already divided the way the work is organised.
     if (page.value === "subtasks") store.groupBy = "taskGroup";
+
+    /*
+     * What the page opens on, most specific first: a view named in the URL
+     * (a bookmark or reload), then an Overview tile's preset (a link that asked
+     * for exactly that), then the user's default view for this page.
+     */
+    const params = new URLSearchParams(window.location.search);
+    const preset = params.get("f");
+    const viewId = Number(params.get("view"));
+
+    if (viewId && store.applySavedView(viewId, { load: false })) {
+        // Applied.
+    } else if (preset) {
+        if (preset === "overdue") store.due = ["overdue"];
+        else if (preset === "unassigned") store.assignee = ["Unassigned"];
+        else if (preset === "completed") store.status = ["closed"];
+        else if (preset.startsWith("status:")) store.status = [preset.slice(7)];
+        else if (preset.startsWith("priority:")) store.priority = [preset.slice(9)];
+    } else if (store.defaultView) {
+        store.applySavedView(store.defaultView.id, { load: false });
+    }
+
+    // A ?view= for a view that was since deleted should not linger.
+    if (viewId && !store.activeViewId) store.setActiveView(null);
+
     store.load();
 
     /*

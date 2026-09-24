@@ -59,6 +59,21 @@ const staticGroups = computed(() => {
         });
     }
 
+    if (filterable && store.savedViews.length) {
+        groups.push({
+            key: "views",
+            label: "Saved views",
+            items: store.savedViews.map((v) => ({
+                id: `view-${v.id}`,
+                icon: v.isDefault ? "mdi-star-outline" : "mdi-bookmark-outline",
+                title: `Open view: ${v.name}`,
+                keywords: "saved view filter",
+                hint: v.id === store.activeViewId ? "Current" : "",
+                run: () => store.applySavedView(v.id),
+            })),
+        });
+    }
+
     groups.push({
         key: "create",
         label: "Create",
