@@ -2,12 +2,21 @@
 import { computed, ref, watch } from "vue";
 import { useTaskStore } from "@/store/useTaskStore";
 import { useFilterFields } from "@/composables/useFilterFields";
+import { useSavedViewDialog } from "@/composables/useSavedViewDialog";
 
 const store = useTaskStore();
 const { fields, activeCount, countOf, summaryOf, isChosen, choose, toggle, clear, clearAll } =
     useFilterFields();
 
 const open = ref(false);
+
+const { requestSaveView } = useSavedViewDialog();
+
+/** Saves the current filters as a saved view, via the Saved views dialog. */
+function saveFilter() {
+    open.value = false;
+    requestSaveView();
+}
 const drilled = ref(null);
 const search = ref("");
 
@@ -136,9 +145,15 @@ function countFor(f, value) {
 
                 <template v-if="activeCount">
                     <div class="tv-pop__rule" />
-                    <button type="button" class="tv-pop__clear" @click="clearAll()">
-                        Clear all filters
-                    </button>
+                    <div class="tv-pop__foot">
+                        <button type="button" class="tv-pop__clear" @click="clearAll()">
+                            Clear all filters
+                        </button>
+                        <button type="button" class="tv-pop__clear tv-pop__save" @click="saveFilter()">
+                            <v-icon icon="mdi-bookmark-plus-outline" size="14" aria-hidden="true" />
+                            Save filter
+                        </button>
+                    </div>
                 </template>
             </template>
         </div>
@@ -250,6 +265,27 @@ function countFor(f, value) {
 
 .tv-pop__clear:hover {
     background: var(--tv-sub);
+}
+
+/* Clear on the left, Save on the right, on one line. */
+.tv-pop__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.tv-pop__foot .tv-pop__clear {
+    inline-size: auto;
+}
+
+.tv-pop__save {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    font-weight: 500;
+    color: var(--tv-ink);
 }
 
 .tv-fm {

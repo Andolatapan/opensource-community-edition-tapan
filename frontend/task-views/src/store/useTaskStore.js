@@ -19,6 +19,10 @@ import {
     saveTaskType,
     saveTitle,
     savePreference,
+    saveSavedView,
+    renameSavedView,
+    deleteSavedView,
+    setDefaultSavedView,
 } from "@/data/mutations";
 import { taskTypes } from "@/data/taskTypes";
 import { toServerFilters } from "@/data/serverFilters";
@@ -140,6 +144,95 @@ function saveHiddenColumns(hidden) {
 }
 
 /**
+ * Saved views. A view is a snapshot of the settings below, taken from this
+ * store and applied back to it. Each page keeps its own list (the server
+ * scopes by page), and the page ships its list inside TASK_VIEWS_CONFIG so a
+ * default view is in place before the first load.
+ */
+const VIEW_LIST_KEYS = [
+    "status", "priority", "type", "assignee", "taskGroup", "due",
+    "createdBy", "commentedBy", "label",
+];
+
+/**
+ * What a key falls back to when a saved view does not mention it — a view
+ * saved before a setting existed should mean "that setting at its default",
+ * not "whatever happens to be on screen".
+ */
+function viewDefaults(page) {
+    return {
+        query: "",
+        ...Object.fromEntries(VIEW_LIST_KEYS.map((k) => [k, []])),
+        preset: "",
+        createdRange: "",
+        favourite: false,
+        showArchived: false,
+        sortBy: "created",
+        sortDir: "desc",
+        // Subtask View opens grouped by task group (see App.vue), so that is
+        // its baseline too.
+        groupBy: page === "subtasks" ? "taskGroup" : "",
+        view: "inline",
+    };
+}
+
+/**
+ * A saved (or current) state filled out with defaults and with lists sorted,
+ * so two states compare equal when they would show the same thing — ticking
+ * High then Low is the same filter as Low then High.
+ */
+function normaliseViewState(state, page, hiddenFallback) {
+    const out = { ...viewDefaults(page) };
+    const src = state && typeof state === "object" ? state : {};
+
+    for (const key of Object.keys(out)) {
+        if (src[key] === undefined) continue;
+        out[key] = Array.isArray(out[key])
+            ? (Array.isArray(src[key]) ? src[key].map(String) : [])
+            : typeof out[key] === "boolean"
+                ? Boolean(src[key])
+                : String(src[key] ?? "");
+    }
+    VIEW_LIST_KEYS.forEach((k) => out[k].sort());
+    out.sortDir = out.sortDir === "asc" ? "asc" : "desc";
+
+    // Column visibility only means something where the page has columns; a
+    // view saved without it leaves the current columns alone.
+    out.hiddenColumns = (Array.isArray(src.hiddenColumns) ? src.hiddenColumns : hiddenFallback)
+        .filter((k) => typeof k === "string")
+        .sort();
+
+    return out;
+}
+
+function loadSavedViews() {
+    const saved = window.TASK_VIEWS_CONFIG?.savedViews;
+
+    return Array.isArray(saved) ? saved.filter((v) => v && v.id && v.name) : [];
+}
+
+/**
+ * Keep `?view=<id>` in the address bar in step with the applied view, so the
+ * page can be bookmarked or reloaded onto it. replaceState, because switching
+ * views is not navigation — Back should leave the page, not step through them.
+ */
+function syncViewParam(id) {
+    try {
+        const url = new URL(window.location.href);
+        if (id) {
+            url.searchParams.set("view", String(id));
+            // An Overview-tile preset would fight the view on the next reload.
+            url.searchParams.delete("f");
+        } else {
+            url.searchParams.delete("view");
+        }
+        window.history.replaceState(window.history.state, "", url);
+    } catch {
+        // A read-only or sandboxed history just means no bookmarkable URL.
+    }
+}
+
+/**
  * One store behind all three views. Filters, sort, selection and column
  * visibility live here so switching view keeps your place — that is what makes
  * the three read as one product rather than three widgets.
@@ -250,6 +343,13 @@ export const useTaskStore = defineStore("tasks", {
          * task via quickCreateTask, and empty drafts are simply discarded.
          */
         newRows: [],
+
+        /** This page's saved views, as {id, name, state, isDefault}. */
+        savedViews: loadSavedViews(),
+        /** The view last applied or saved, or null for none. */
+        activeViewId: null,
+        /** A saved-view write is in flight. */
+        viewBusy: false,
     }),
 
     getters: {
@@ -279,6 +379,39 @@ export const useTaskStore = defineStore("tasks", {
             s.label.length +
             (s.createdRange ? 1 : 0) + (s.favourite ? 1 : 0) +
             (s.preset ? 1 : 0) + (s.query.trim() ? 1 : 0),
+
+        /** Everything a saved view captures, as it stands right now. */
+        viewSnapshot(s) {
+            const snap = {
+                query: s.query,
+                ...Object.fromEntries(VIEW_LIST_KEYS.map((k) => [k, [...s[k]]])),
+                preset: s.preset,
+                createdRange: s.createdRange,
+                favourite: s.favourite,
+                showArchived: s.showArchived,
+                sortBy: s.sortBy,
+                sortDir: s.sortDir,
+                groupBy: s.groupBy,
+                view: s.view,
+            };
+            if (this.supportsColumns) snap.hiddenColumns = [...s.hiddenColumns];
+            return normaliseViewState(snap, s.page, [...s.hiddenColumns]);
+        },
+
+        activeView: (s) => s.savedViews.find((v) => v.id === s.activeViewId) ?? null,
+
+        defaultView: (s) => s.savedViews.find((v) => v.isDefault) ?? null,
+
+        /**
+         * The applied view no longer matches the screen — something was changed
+         * after it was applied. Drives the "modified" mark and "Save changes".
+         */
+        viewModified() {
+            const view = this.activeView;
+            if (!view) return false;
+            const saved = normaliseViewState(view.state, this.page, [...this.hiddenColumns]);
+            return JSON.stringify(saved) !== JSON.stringify(this.viewSnapshot);
+        },
 
         /**
          * Display name -> id, for the filters the endpoint takes by id. Built
@@ -987,7 +1120,135 @@ export const useTaskStore = defineStore("tasks", {
             this.commentedBy = [];
             this.label = [];
             this.favourite = false;
+            // Reset means "start over", not "edit the view you are on".
+            this.setActiveView(null);
             this.scheduleLoad();
+        },
+
+        setActiveView(id) {
+            this.activeViewId = id || null;
+            syncViewParam(this.activeViewId);
+        },
+
+        /**
+         * Put a saved view's settings on screen. `load: false` is for start-up,
+         * where App.vue loads once after deciding what to show.
+         */
+        applySavedView(id, { load = true } = {}) {
+            const view = this.savedViews.find((v) => v.id === id);
+            if (!view) return false;
+
+            const s = normaliseViewState(view.state, this.page, [...this.hiddenColumns]);
+            VIEW_LIST_KEYS.forEach((k) => { this[k] = [...s[k]]; });
+            this.query = s.query;
+            this.preset = s.preset;
+            this.createdRange = s.createdRange;
+            this.favourite = s.favourite;
+            this.showArchived = s.showArchived;
+            this.sortBy = s.sortBy;
+            this.sortDir = s.sortDir;
+            this.groupBy = s.groupBy;
+            this.collapsedGroups = new Set();
+            if (this.page === "views") this.view = s.view;
+            // Applied for this visit only. The saved column preference stays as
+            // the user set it, so leaving the view does not rewrite it.
+            if (this.supportsColumns) this.hiddenColumns = new Set(s.hiddenColumns);
+
+            this.clearSelection();
+            this.setActiveView(view.id);
+            if (load) this.load();
+            return true;
+        },
+
+        /** Swap in the server's list after a write, keeping the active view if it survived. */
+        receiveSavedViews(views) {
+            this.savedViews = Array.isArray(views) ? views : [];
+            if (this.activeViewId && !this.activeView) this.setActiveView(null);
+        },
+
+        async runViewWrite(write, notice) {
+            if (this.viewBusy) return null;
+            this.viewBusy = true;
+            try {
+                const data = await write();
+                this.receiveSavedViews(data.views);
+                if (notice) this.notice = notice;
+                return data;
+            } catch (e) {
+                this.saveError = e?.message || "Could not save the view.";
+                return null;
+            } finally {
+                this.viewBusy = false;
+            }
+        },
+
+        /** Save what is on screen as a new view, and make it the active one. */
+        async saveViewAs(name) {
+            const data = await this.runViewWrite(
+                () => saveSavedView(this.page, { name: name.trim(), state: this.viewSnapshot }),
+                "View saved",
+            );
+            if (data?.id) this.setActiveView(data.id);
+            return Boolean(data);
+        },
+
+        /** Overwrite the active view with what is on screen. */
+        async updateActiveView() {
+            const view = this.activeView;
+            if (!view) return false;
+            const data = await this.runViewWrite(
+                () => saveSavedView(this.page, { id: view.id, state: this.viewSnapshot }),
+                `"${view.name}" updated`,
+            );
+            return Boolean(data);
+        },
+
+        async renameView(id, name) {
+            const data = await this.runViewWrite(
+                () => renameSavedView(this.page, id, name.trim()),
+                "View renamed",
+            );
+            return Boolean(data);
+        },
+
+        async deleteView(id) {
+            const data = await this.runViewWrite(() => deleteSavedView(this.page, id), "View deleted");
+            return Boolean(data);
+        },
+
+        /**
+         * The "All tasks (no filter)" entry: the page as it opens with no view —
+         * no filters, the page's own grouping, active tasks only. Sort and the
+         * List/Spreadsheet/Table choice are left as they are; they are layout,
+         * not filtering.
+         */
+        showAllTasks() {
+            this.showArchived = false;
+            this.groupBy = viewDefaults(this.page).groupBy;
+            this.collapsedGroups = new Set();
+            this.clearSelection();
+            // Also clears the active view and schedules the reload.
+            this.clearFilters();
+        },
+
+        /** Open the page unfiltered by default, i.e. no default view. */
+        async clearDefaultView() {
+            if (!this.defaultView) return true;
+            const data = await this.runViewWrite(
+                () => setDefaultSavedView(this.page, 0),
+                "Page now opens with all tasks",
+            );
+            return Boolean(data);
+        },
+
+        /** Toggle: making the current default the default again clears it. */
+        async toggleDefaultView(id) {
+            const clearing = this.defaultView?.id === id;
+            const data = await this.runViewWrite(
+                () => setDefaultSavedView(this.page, clearing ? 0 : id),
+                clearing ? "Default view cleared" : "Default view set",
+            );
+            return Boolean(data);
         },
 
         toggleColumn(key) {
