@@ -1136,7 +1136,12 @@ class EasycasesTable extends Table
                 $caseAll[$caseKey]['csDueDate'] = $csDueDate;
                 $caseAll[$caseKey]['csDueDate1'] = $csDueDate1;
 
+                // `title` is HTML-escaped for the legacy list, which builds its
+                // rows as HTML strings. `title_text` is the stored text for
+                // clients that escape at render time (the task-views app); fed
+                // `title` they would escape it twice and show &quot; for a quote.
                 $caseAll[$caseKey]['title'] = h($getdata['title'], true, 'UTF-8');
+                $caseAll[$caseKey]['title_text'] = (string)$getdata['title'];
                 $caseAll[$caseKey]['parent_task_id'] = intval($getdata['parent_task_id']);
 
                 $repeatLastUid = $getlastUid;
