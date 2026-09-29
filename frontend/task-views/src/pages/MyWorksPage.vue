@@ -28,7 +28,7 @@ const pager = usePagedGroups(store);
         />
 
         <p v-if="!store.mine.length" class="mw__empty tv-meta">
-            Nothing assigned to you here. Enjoy the quiet.
+            Nothing assigned to you in any of your projects. Enjoy the quiet.
         </p>
     </div>
 </template>

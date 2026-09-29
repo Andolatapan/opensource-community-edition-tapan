@@ -127,8 +127,10 @@ onMounted(() => {
     store.page = page.value;
 
     // Subtask View opens grouped by task group — the tree is easier to read
-    // when it is already divided the way the work is organised.
+    // when it is already divided the way the work is organised. My Works spans
+    // every project, so it opens grouped by project.
     if (page.value === "subtasks") store.groupBy = "taskGroup";
+    if (page.value === "myworks") store.groupBy = "project";
 
     /*
      * What the page opens on, most specific first: a view named in the URL

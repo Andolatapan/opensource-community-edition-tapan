@@ -49,8 +49,12 @@ const staticGroups = computed(() => {
             key: "filter",
             label: "Filters",
             items: [
-                { id: "flt-mine", icon: "mdi-account-check-outline", title: "My tasks", keywords: "assigned to me mine", run: () => store.applyPreset("assigntome") },
-                { id: "flt-unassigned", icon: "mdi-account-off-outline", title: "Unassigned tasks", keywords: "nobody none", run: () => { store.clearFilters(); store.assignee = ["Unassigned"]; store.scheduleLoad(); } },
+                // Everything on My Works is already assigned to you, so "mine"
+                // and "unassigned" would be a no-op and an empty list.
+                ...(page === "myworks" ? [] : [
+                    { id: "flt-mine", icon: "mdi-account-check-outline", title: "My tasks", keywords: "assigned to me mine", run: () => store.applyPreset("assigntome") },
+                    { id: "flt-unassigned", icon: "mdi-account-off-outline", title: "Unassigned tasks", keywords: "nobody none", run: () => { store.clearFilters(); store.assignee = ["Unassigned"]; store.scheduleLoad(); } },
+                ]),
                 { id: "flt-overdue", icon: "mdi-alert-circle-outline", title: "Overdue tasks", keywords: "late due", run: () => store.applyPreset("overdue") },
                 { id: "flt-high", icon: "mdi-flag-outline", title: "High priority", keywords: "priority urgent", run: () => store.applyPreset("highpriority") },
                 { id: "flt-fav", icon: "mdi-star-outline", title: "Favourite tasks", keywords: "starred favorite", run: () => store.applyPreset("favourite") },

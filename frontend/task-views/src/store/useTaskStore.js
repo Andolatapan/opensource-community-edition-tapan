@@ -169,9 +169,9 @@ function viewDefaults(page) {
         showArchived: false,
         sortBy: "created",
         sortDir: "desc",
-        // Subtask View opens grouped by task group (see App.vue), so that is
-        // its baseline too.
-        groupBy: page === "subtasks" ? "taskGroup" : "",
+        // Subtask View opens grouped by task group and My Works by project
+        // (see App.vue), so those are their baselines too.
+        groupBy: page === "subtasks" ? "taskGroup" : page === "myworks" ? "project" : "",
         view: "inline",
     };
 }
@@ -353,6 +353,13 @@ export const useTaskStore = defineStore("tasks", {
     }),
 
     getters: {
+        /**
+         * The project the list is fetched for. My Works is every task assigned
+         * to you, whichever project it lives in, so it ignores the top-bar
+         * selection; every other page follows it.
+         */
+        scopeProject: (s) => (s.page === "myworks" ? "all" : currentProject()),
+
         columns: (s) => COLUMNS.filter((c) => c.always || !s.hiddenColumns.has(c.key)),
 
         /**
@@ -361,7 +368,7 @@ export const useTaskStore = defineStore("tasks", {
          * the list spans projects, since a quick task needs one target project.
          */
         projectScopeUniq(s) {
-            const scoped = currentProject();
+            const scoped = this.scopeProject;
             if (scoped && scoped !== "all") return scoped;
             const ids = [...new Set(s.tasks.map((t) => t.projectUniqId).filter(Boolean))];
             return ids.length === 1 ? ids[0] : null;
@@ -880,6 +887,12 @@ export const useTaskStore = defineStore("tasks", {
                 : null;
             if (scale) order.sort((a, b) => scale.indexOf(a) - scale.indexOf(b));
 
+            // My Works spans every project, so its project bands are listed by
+            // name rather than by whichever project's task happened to be newest.
+            if (this.page === "myworks" && this.groupBy === "project") {
+                order.sort((a, b) => byKey.get(a).label.localeCompare(byKey.get(b).label));
+            }
+
             return order.map((key) => ({
                 ...byKey.get(key),
                 collapsed: this.collapsedGroups.has(key),
@@ -919,14 +932,21 @@ export const useTaskStore = defineStore("tasks", {
                 this.serverHandled = handled;
                 this.serverSorted = hasServerSort(this.sortBy);
 
-                const first = await fetchTasks({ page: 1, archived, ...sort, filters: params });
+                // My Works asks the server for just your tasks, so another
+                // member's tasks never use up the page cap ahead of yours.
+                const project = this.scopeProject;
+                const filters = this.page === "myworks"
+                    ? { ...params, caseMenuFilters: "assigntome" }
+                    : params;
+
+                const first = await fetchTasks({ page: 1, project, archived, ...sort, filters });
                 let all = first.tasks;
 
                 const pages = Math.ceil(first.total / (first.perPage || 30));
                 const fetchTo = Math.min(pages, MAX_PAGES);
 
                 for (let page = 2; page <= fetchTo; page++) {
-                    const next = await fetchTasks({ page, archived, ...sort, filters: params });
+                    const next = await fetchTasks({ page, project, archived, ...sort, filters });
                     if (!next.tasks.length) break;
                     all = all.concat(next.tasks);
                 }
