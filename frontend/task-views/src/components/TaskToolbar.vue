@@ -21,6 +21,11 @@ const groupByLabel = computed(() => {
 const presetLabel = computed(
     () => PRESETS.find((p) => p.value === store.preset)?.label ?? "All tasks",
 );
+
+// Everything on My Works is already assigned to you.
+const presets = computed(() =>
+    store.page === "myworks" ? PRESETS.filter((p) => p.value !== "assigntome") : PRESETS,
+);
 </script>
 
 <template>
@@ -44,7 +49,7 @@ const presetLabel = computed(
             </template>
             <div class="tv-pop">
                 <button
-                    v-for="p in PRESETS"
+                    v-for="p in presets"
                     :key="p.value"
                     type="button"
                     class="tv-pop__row"

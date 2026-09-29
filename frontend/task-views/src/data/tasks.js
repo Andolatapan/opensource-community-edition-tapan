@@ -153,7 +153,9 @@ function toTask(row, statusNames, groupNames = {}, projects = {}) {
         id: row.uniq_id ?? String(row.id),
         numericId: Number(row.id),
         ref: row.case_no ? `#${row.case_no}` : `#${row.id}`,
-        title: row.title ?? "",
+        // The plain title: `title` comes HTML-escaped for the legacy list, and
+        // Vue escapes again on render.
+        title: row.title_text ?? row.title ?? "",
         created: row.dt_created ?? null,
         type: Array.isArray(row.csTdTyp) ? row.csTdTyp[1] ?? "" : "",
         /** Filtering by type takes an id; the row only shows the name. */
