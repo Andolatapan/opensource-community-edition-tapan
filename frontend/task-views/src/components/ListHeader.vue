@@ -30,6 +30,8 @@ const COLS = [
     { key: "assignee", label: "Assignee", cls: "tv-lcol--assignee" },
     { key: "status", label: "Status", cls: "tv-lcol--status" },
     { key: "priority", label: "Priority", cls: "tv-lcol--pri" },
+    { key: "due", label: "Due", cls: "tv-lcol--due" },
+    { key: "estimate", label: "Est.", cls: "tv-lcol--est" },
 ];
 
 function sortIcon(key) {

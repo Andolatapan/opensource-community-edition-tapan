@@ -21,10 +21,12 @@ const TRACKS = {
     assignee: "132px",
     status: "148px",
     priority: "104px",
+    due: "112px",
+    estimate: "68px",
 };
 
 /** Grid order — the cell order in ListHeader and CompactRow. */
-const ORDER = ["id", "title", "type", "assignee", "status", "priority"];
+const ORDER = ["id", "title", "type", "assignee", "status", "priority", "due", "estimate"];
 
 /** Below the breakpoint the stylesheet keeps only these two. */
 const NARROW = { title: "minmax(0, 1fr)", status: "120px" };

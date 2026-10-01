@@ -213,6 +213,8 @@
         132px                   /* assignee */
         148px                   /* status */
         104px                   /* priority */
+        112px                   /* due date */
+        68px                    /* estimated hours */
         40px                    /* row actions */
     );
     align-items: center;
@@ -251,7 +253,9 @@
     #taskViewsApp .tv-lrow > .tv-lcol--type,
     #taskViewsApp .tv-lrow > .tv-lcol--id,
     #taskViewsApp .tv-lrow > .tv-lcol--assignee,
-    #taskViewsApp .tv-lrow > .tv-lcol--pri {
+    #taskViewsApp .tv-lrow > .tv-lcol--pri,
+    #taskViewsApp .tv-lrow > .tv-lcol--due,
+    #taskViewsApp .tv-lrow > .tv-lcol--est {
         display: none;
     }
 }
