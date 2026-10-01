@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from "vue";
 import { useTaskStore } from "@/store/useTaskStore";
-import { PRIORITIES, STATUSES } from "@/data/tasks";
+import { PRIORITIES, STATUSES, formatDue } from "@/data/tasks";
 import StatusBadge from "@/components/StatusBadge.vue";
 import PriorityGlyph from "@/components/PriorityGlyph.vue";
 import TaskTypeBadge from "@/components/TaskTypeBadge.vue";
@@ -104,7 +104,12 @@ function open(e) {
                 <v-icon icon="mdi-subdirectory-arrow-right" size="12" aria-hidden="true" />
                 {{ parentRef }}
             </span>
-            <span v-if="store.spansProjects && task.project" class="cr__proj tv-meta">
+            <!-- My Works grouped by project: the band already names the project,
+                 so the row doesn't repeat it. -->
+            <span
+                v-if="store.spansProjects && task.project && !(store.page === 'myworks' && store.groupBy === 'project')"
+                class="cr__proj tv-meta"
+            >
                 {{ task.project }}
             </span>
             <span v-if="expandable && childCount" class="cr__count">{{ childCount }}</span>
@@ -114,6 +119,8 @@ function open(e) {
         <span v-if="shows('assignee')" class="cr__assignee tv-meta tv-lcol--assignee">{{ task.assignee }}</span>
         <span v-if="shows('status')" class="tv-lcol--status"><StatusBadge :value="task.status" :label="task.statusLabel" /></span>
         <span v-if="shows('priority')" class="tv-lcol--pri"><PriorityGlyph :value="task.priority" /></span>
+        <span v-if="shows('due')" class="cr__due tv-meta tv-lcol--due" :class="{ 'is-empty': !task.due }">{{ formatDue(task.due) }}</span>
+        <span v-if="shows('estimate')" class="cr__est tv-meta tv-lcol--est">{{ task.estimate || "—" }}</span>
 
         <span class="cr__actions cr__nogo">
             <v-menu location="bottom end" offset="2">
@@ -321,6 +328,18 @@ function open(e) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.cr__due {
+    white-space: nowrap;
+}
+
+.cr__due.is-empty {
+    color: var(--tv-faint);
+}
+
+.cr__est {
+    font-variant-numeric: tabular-nums;
 }
 
 .cr__actions {
