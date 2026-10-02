@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { useTaskStore } from "@/store/useTaskStore";
-import { formatDue } from "@/data/tasks";
+import { formatDue, statusMeta } from "@/data/tasks";
 import { fetchWorkload } from "@/data/mutations";
 
 import { openTask } from "@/utils/taskLink";
@@ -62,6 +62,41 @@ const cells = computed(() => {
     }
     return out;
 });
+
+/*
+ * A day keeps a fixed height that fits this many tasks, so one busy day can't
+ * stretch its whole week row; past it the day's list scrolls, and the expand
+ * icon opens the full detail.
+ */
+const MAX_VISIBLE = 5;
+
+/** The day whose full list is open, or null. */
+const dayIso = ref(null);
+const dayOpen = computed({
+    get: () => dayIso.value !== null,
+    set: (open) => {
+        if (!open) dayIso.value = null;
+    },
+});
+// Read live from byDate so the list follows a reschedule made meanwhile.
+const dayTasks = computed(() => (dayIso.value ? byDate.value[dayIso.value] ?? [] : []));
+const dayDone = computed(() => dayTasks.value.filter((t) => t.status === "resolved" || t.status === "closed").length);
+
+/*
+ * The task detail opens as the legacy slider underneath this dialog's overlay,
+ * so the dialog has to go once the task is open — otherwise it sits on top of
+ * the detail it just opened.
+ */
+function openFromDay(task, event) {
+    if (openTask(task, event)) dayIso.value = null;
+}
+
+/** Done reads as a tick, in progress as a filled dot, not started as an open circle. */
+function statusGlyph(status) {
+    if (status === "resolved" || status === "closed") return "mdi-check";
+    if (status === "in_progress") return "mdi-circle-medium";
+    return "mdi-circle-outline";
+}
 
 function isoOf(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -247,11 +282,23 @@ async function confirmReschedule() {
                 @dragleave="onDragLeave(cell, $event)"
                 @drop.prevent="onDrop(cell)"
             >
-                <span class="cal__date">{{ cell.day }}</span>
+                <div class="cal__head">
+                    <span class="cal__date">{{ cell.day }}</span>
+                    <button
+                        v-if="cell.tasks.length > MAX_VISIBLE && !dragging"
+                        type="button"
+                        class="cal__expand"
+                        :title="`Expand for full detail: all ${cell.tasks.length} tasks on ${longDate(cell.iso)}`"
+                        :aria-label="`Expand ${longDate(cell.iso)}`"
+                        @click="dayIso = cell.iso"
+                    >
+                        <v-icon icon="mdi-arrow-expand" size="14" />
+                    </button>
+                </div>
                 <span v-if="dragging && over === cell.iso && dropHint(dragging, cell.iso)" class="cal__hint">
                     {{ dropHint(dragging, cell.iso) }}
                 </span>
-                <ul class="cal__tasks">
+                <ul class="cal__tasks" :class="{ 'is-scrolling': cell.tasks.length > MAX_VISIBLE }">
                     <li
                         v-for="t in cell.tasks"
                         :key="t.id"
@@ -268,6 +315,48 @@ async function confirmReschedule() {
                 </ul>
             </div>
         </div>
+
+        <v-dialog v-model="dayOpen" max-width="520">
+            <div v-if="dayIso" class="cal-day">
+                <div class="cal-day__head">
+                    <h2 class="cal-day__title tv-label">{{ longDate(dayIso) }}</h2>
+                    <button type="button" class="cal-day__collapse" aria-label="Collapse" title="Collapse" @click="dayIso = null">
+                        <v-icon icon="mdi-arrow-collapse" size="16" />
+                    </button>
+                </div>
+
+                <div class="cal-day__body">
+                    <div class="cal-day__progress">
+                        <div class="cal-day__progress-row">
+                            <span>Completed</span>
+                            <strong>{{ dayDone }} / {{ dayTasks.length }}</strong>
+                        </div>
+                        <div class="cal-day__bar" role="progressbar" :aria-valuenow="dayDone" aria-valuemin="0" :aria-valuemax="dayTasks.length">
+                            <span :style="{ inlineSize: `${dayTasks.length ? (dayDone / dayTasks.length) * 100 : 0}%` }" />
+                        </div>
+                    </div>
+
+                    <ul class="cal-day__list">
+                        <li
+                            v-for="t in dayTasks"
+                            :key="t.id"
+                            class="cal-day__item"
+                            :class="`st-${t.status}`"
+                            :title="t.title"
+                            @click="openFromDay(t, $event)"
+                        >
+                            <v-icon class="cal-day__glyph" :icon="statusGlyph(t.status)" size="14" />
+                            <span class="cal-day__ref">{{ t.ref }}</span>
+                            <span class="cal-day__name">
+                                <span class="cal-day__text">{{ t.title }}</span>
+                                <span class="cal-day__meta">{{ t.assignee }}<template v-if="t.due"> · Due {{ formatDue(t.due) }}</template></span>
+                            </span>
+                            <span class="cal-day__status">{{ t.statusLabel || statusMeta(t.status).label }}</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </v-dialog>
 
         <div v-if="unscheduled.length" class="cal__undated">
             <span class="tv-label">Not scheduled</span>
@@ -369,7 +458,8 @@ async function confirmReschedule() {
 
 .cal__grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    /* minmax(0, …) so a long task title can't widen its column. */
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     border: 1px solid var(--tv-rule);
     border-radius: var(--tv-radius-lg);
     overflow: hidden;
@@ -381,8 +471,16 @@ async function confirmReschedule() {
     border-block-end: 1px solid var(--tv-rule);
 }
 
+/*
+ * Fixed height: 14px padding + 20px date + 4px gap + five 18px tasks with 3px
+ * gaps (102px). The height doesn't depend on how many tasks the day has; a
+ * longer list scrolls inside it.
+ */
 .cal__cell {
-    min-block-size: 96px;
+    display: flex;
+    flex-direction: column;
+    block-size: 142px;
+    overflow: hidden;
     padding: 6px 6px 8px;
     border-inline-end: 1px solid var(--tv-rule);
     border-block-end: 1px solid var(--tv-rule);
@@ -399,6 +497,8 @@ async function confirmReschedule() {
 }
 
 .cal__date {
+    flex: none;
+    line-height: 20px;
     font-size: var(--tv-size-meta);
     font-variant-numeric: tabular-nums;
     color: var(--tv-muted);
@@ -416,6 +516,7 @@ async function confirmReschedule() {
 }
 
 .cal__tasks {
+    flex: none;
     list-style: none;
     margin: 4px 0 0;
     padding: 0;
@@ -498,6 +599,202 @@ async function confirmReschedule() {
     font-size: var(--tv-size-label);
     font-weight: 500;
     color: #b3261e;
+}
+
+.cal__grid .cal__tasks .cal__task {
+    flex: none;
+    block-size: 18px;
+    line-height: 14px;
+}
+
+/* Exactly five rows tall; the rest scroll. */
+.cal__grid .cal__tasks {
+    max-block-size: 102px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--tv-rule-strong) transparent;
+}
+
+/* Room for the scrollbar so it doesn't sit on top of the titles. */
+.cal__grid .cal__tasks.is-scrolling {
+    padding-inline-end: 2px;
+}
+
+.cal__head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    block-size: 20px;
+}
+
+/* Same affordance as the expandable panels elsewhere: diagonal arrows, top right. */
+.cal__expand {
+    display: grid;
+    place-items: center;
+    inline-size: 20px;
+    block-size: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: none;
+    color: var(--tv-ink-2);
+    cursor: pointer;
+}
+
+.cal__expand:hover,
+.cal__expand:focus-visible {
+    background: var(--tv-sub-2);
+    color: var(--tv-ink);
+}
+
+.cal-day {
+    background: var(--tv-paper);
+    border-radius: var(--tv-radius-lg);
+    overflow: hidden;
+}
+
+.cal-day__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-block-end: 1px solid var(--tv-rule);
+}
+
+.cal-day__title {
+    margin: 0;
+    font-size: var(--tv-size-meta);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--tv-ink-2);
+}
+
+.cal-day__collapse {
+    display: grid;
+    place-items: center;
+    inline-size: 28px;
+    block-size: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--tv-radius);
+    background: none;
+    color: var(--tv-ink-2);
+    cursor: pointer;
+}
+
+.cal-day__collapse:hover,
+.cal-day__collapse:focus-visible {
+    background: var(--tv-sub);
+    color: var(--tv-ink);
+}
+
+.cal-day__body {
+    padding: 16px 18px 12px;
+}
+
+.cal-day__progress {
+    padding-block-end: 14px;
+    border-block-end: 1px solid var(--tv-rule);
+}
+
+.cal-day__progress-row {
+    display: flex;
+    justify-content: space-between;
+    margin-block-end: 6px;
+    font-size: var(--tv-size-meta);
+    color: var(--tv-ink-2);
+}
+
+.cal-day__progress-row strong {
+    color: var(--tv-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.cal-day__bar {
+    block-size: 6px;
+    border-radius: 3px;
+    background: var(--tv-sub-2);
+    overflow: hidden;
+}
+
+.cal-day__bar span {
+    display: block;
+    block-size: 100%;
+    border-radius: inherit;
+    background: var(--tv-st-done);
+    transition: inline-size 200ms;
+}
+
+.cal-day__list {
+    list-style: none;
+    margin: 0;
+    padding: 6px 0 0;
+    max-block-size: 55vh;
+    overflow-y: auto;
+}
+
+.cal-day__item {
+    display: grid;
+    grid-template-columns: 16px auto minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 10px;
+    padding: 8px 6px;
+    border-radius: var(--tv-radius);
+    cursor: pointer;
+}
+
+.cal-day__item:hover {
+    background: var(--tv-sub);
+}
+
+/*
+ * Spelled out here: the dialog is teleported out of #taskViewsApp, so the
+ * shared .st-* rail colours don't reach it.
+ */
+.cal-day__glyph {
+    color: var(--tv-muted);
+}
+
+.cal-day__item.st-new .cal-day__glyph { color: var(--tv-st-new); }
+.cal-day__item.st-in_progress .cal-day__glyph { color: var(--tv-st-progress); }
+.cal-day__item.st-resolved .cal-day__glyph { color: var(--tv-st-resolved); }
+.cal-day__item.st-closed .cal-day__glyph { color: var(--tv-st-done); }
+
+.cal-day__ref {
+    font-size: var(--tv-size-label);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--tv-ink-2);
+}
+
+.cal-day__name {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+}
+
+.cal-day__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--tv-ink);
+}
+
+.cal-day__meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--tv-size-label);
+    color: var(--tv-muted);
+}
+
+.cal-day__status {
+    font-size: var(--tv-size-label);
+    color: var(--tv-muted);
+    white-space: nowrap;
 }
 
 .cal__task.is-dragging {
