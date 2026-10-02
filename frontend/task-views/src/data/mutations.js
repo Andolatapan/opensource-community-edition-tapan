@@ -278,6 +278,28 @@ export async function saveDueDate(task, date) {
 }
 
 /**
+ * What the task's assignee already has on `date` (YYYY-MM-DD): their other
+ * open tasks placed on that day, and the estimated hours those carry.
+ * Resolves to {assigned: false} for an unassigned task.
+ */
+export async function fetchWorkload(task, date) {
+    const { data } = await post("easycases/taskWorkload", { caseId: task.numericId, date });
+    if (data?.success !== "Yes") throw new Error(data?.message || "Could not check the assignee's workload.");
+    return { assigned: Boolean(data.assigned), tasks: Number(data.tasks) || 0, hours: Number(data.hours) || 0 };
+}
+
+/**
+ * Move a task's start date — the calendar drop. The server re-checks the same
+ * rules the calendar does (not in the past, not after the due date) and
+ * leaves the task untouched when one fails.
+ */
+export async function rescheduleTask(task, date) {
+    const { data } = await post("easycases/rescheduleTask", { caseId: task.numericId, date });
+    if (data?.success !== "Yes") throw new Error(data?.message || "Could not reschedule the task.");
+    return data;
+}
+
+/**
  * Move a task to a workflow (custom) status — the kanban drop for projects
  * with their own workflow. Same endpoint the task detail uses, so the master
  * status and legend derive from the chosen row on the server.

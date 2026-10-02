@@ -1026,6 +1026,13 @@ class EasycasesTable extends Table
                 //assign info end
 
                 $caseDueDate = $tz->GetDateTime(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, $getdata['due_date'], 'datetime');
+                // The calendar day in the viewer's timezone. Both columns are stored
+                // in UTC, so the raw value can fall on the neighbouring day.
+                $caseAll[$caseKey]['due_date_local'] = ($caseDueDate && CommonUtility::checkValidDate((string)$caseDueDate)) ? substr((string)$caseDueDate, 0, 10) : '';
+                $caseStartDate = !empty($getdata['gantt_start_date']) && CommonUtility::checkValidDate((string)$getdata['gantt_start_date'])
+                    ? $tz->GetDateTime(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, $getdata['gantt_start_date'], 'datetime')
+                    : '';
+                $caseAll[$caseKey]['start_date_local'] = ($caseStartDate && CommonUtility::checkValidDate((string)$caseStartDate)) ? substr((string)$caseStartDate, 0, 10) : '';
                 $caseDueDateInintial = $tz->GetDateTime(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, $getdata['initial_due_date'], 'datetime');
                 if ($caseDueDateInintial && CommonUtility::checkValidDate($caseDueDateInintial)) {
                     $csDuDtFmtInitial = $dt->dateFormatOutputdateTime_day($caseDueDateInintial, $curCreated, 'week');

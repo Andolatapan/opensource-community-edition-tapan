@@ -13,6 +13,7 @@ import {
     saveStatus,
     saveAssignee,
     saveCustomStatus,
+    rescheduleTask,
     saveDueDate,
     saveEstimate,
     saveStatusBulk,
@@ -1359,6 +1360,32 @@ export const useTaskStore = defineStore("tasks", {
             } catch (e) {
                 task[field] = previous;
                 this.saveError = e?.message || "Could not save that change.";
+            } finally {
+                this.saving.delete(id);
+                this.saving = new Set(this.saving);
+            }
+        },
+
+        /**
+         * Calendar drop: move a task's start date. Not optimistic — the task
+         * stays where it was until the server has accepted the date, so a
+         * rejected drop never shows as a move. Resolves true on success.
+         */
+        async reschedule(id, date) {
+            const task = this.tasks.find((t) => t.id === id);
+            if (!task || task.start === date) return false;
+
+            this.saving.add(id);
+            this.saving = new Set(this.saving);
+            try {
+                await rescheduleTask(task, date);
+                task.start = date;
+                this.lastEditedId = id;
+                this.saveError = null;
+                return true;
+            } catch (e) {
+                this.saveError = e?.message || "Could not reschedule that task.";
+                return false;
             } finally {
                 this.saving.delete(id);
                 this.saving = new Set(this.saving);
