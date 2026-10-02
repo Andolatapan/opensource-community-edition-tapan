@@ -120,6 +120,26 @@ function longDate(iso) {
     });
 }
 
+/** Two-letter badge for the assignee; unassigned tasks get none. */
+function initials(t) {
+    if (!t.assigneeId) return "";
+    return t.assignee
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase();
+}
+
+/** A click on a day's empty space opens Create Task with that day as the start date. */
+function createOn(cell, event) {
+    if (event.target.closest(".cal__task, .cal__expand")) return;
+    if (typeof window.creatask !== "function") return;
+    const d = new Date(`${cell.iso}T00:00:00`);
+    const text = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    window.creatask("", "", "", "", text);
+}
+
 function shortName(t) {
     const name = (t.title || "").trim() || t.ref;
     return name.length > 60 ? `${name.slice(0, 59)}…` : name;
@@ -262,7 +282,7 @@ async function confirmReschedule() {
                 <v-icon icon="mdi-chevron-right" size="18" />
             </button>
             <button type="button" class="cal__today" @click="today">Today</button>
-            <span class="cal__help tv-meta">Drag a task to another day to reschedule it.</span>
+            <span class="cal__help tv-meta">Click a day to add a task; drag a task to another day to reschedule it.</span>
         </div>
 
         <div class="cal__grid" role="grid" :class="{ 'is-dragging': dragging }">
@@ -281,6 +301,7 @@ async function confirmReschedule() {
                 @dragover="onDragOver(cell, $event)"
                 @dragleave="onDragLeave(cell, $event)"
                 @drop.prevent="onDrop(cell)"
+                @click="createOn(cell, $event)"
             >
                 <div class="cal__head">
                     <span class="cal__date">{{ cell.day }}</span>
@@ -310,6 +331,7 @@ async function confirmReschedule() {
                         @dragend="onDragEnd"
                         @click="openTask(t, $event)"
                     >
+                        <span v-if="initials(t)" class="cal__avatar" :title="t.assignee">{{ initials(t) }}</span>
                         <span class="cal__task-txt">{{ t.ref }} {{ t.title }}</span>
                     </li>
                 </ul>
@@ -538,7 +560,32 @@ async function confirmReschedule() {
     background: var(--tv-sub-2);
 }
 
+.cal__task {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.cal__avatar {
+    flex: none;
+    display: grid;
+    place-items: center;
+    inline-size: 14px;
+    block-size: 14px;
+    border-radius: 50%;
+    background: var(--tv-brand-soft);
+    color: var(--tv-brand);
+    font-size: 8px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.cal__cell {
+    cursor: cell;
+}
+
 .cal__task-txt {
+    min-inline-size: 0;
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
