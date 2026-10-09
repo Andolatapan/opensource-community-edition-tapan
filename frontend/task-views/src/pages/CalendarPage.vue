@@ -131,13 +131,18 @@ function initials(t) {
         .toUpperCase();
 }
 
-/** A click on a day's empty space opens Create Task with that day as the start date. */
-function createOn(cell, event) {
-    if (event.target.closest(".cal__task, .cal__expand")) return;
+/** Opens the app's Create Task form with `iso` as the start date. */
+function openCreate(iso) {
     if (typeof window.creatask !== "function") return;
-    const d = new Date(`${cell.iso}T00:00:00`);
+    const d = new Date(`${iso}T00:00:00`);
     const text = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     window.creatask("", "", "", "", text);
+}
+
+/** A click on a day's empty space does the same as its + button. */
+function createOn(cell, event) {
+    if (event.target.closest(".cal__task, .cal__tools")) return;
+    openCreate(cell.iso);
 }
 
 function shortName(t) {
@@ -305,16 +310,27 @@ async function confirmReschedule() {
             >
                 <div class="cal__head">
                     <span class="cal__date">{{ cell.day }}</span>
-                    <button
-                        v-if="cell.tasks.length > MAX_VISIBLE && !dragging"
-                        type="button"
-                        class="cal__expand"
-                        :title="`Expand for full detail: all ${cell.tasks.length} tasks on ${longDate(cell.iso)}`"
-                        :aria-label="`Expand ${longDate(cell.iso)}`"
-                        @click="dayIso = cell.iso"
-                    >
-                        <v-icon icon="mdi-arrow-expand" size="14" />
-                    </button>
+                    <span v-if="!dragging" class="cal__tools">
+                        <button
+                            type="button"
+                            class="cal__tool cal__add"
+                            :title="`Add a task on ${longDate(cell.iso)}`"
+                            :aria-label="`Add a task on ${longDate(cell.iso)}`"
+                            @click.stop="openCreate(cell.iso)"
+                        >
+                            <v-icon icon="mdi-plus" size="16" />
+                        </button>
+                        <button
+                            v-if="cell.tasks.length > MAX_VISIBLE"
+                            type="button"
+                            class="cal__tool cal__expand"
+                            :title="`Expand for full detail: all ${cell.tasks.length} tasks on ${longDate(cell.iso)}`"
+                            :aria-label="`Expand ${longDate(cell.iso)}`"
+                            @click.stop="dayIso = cell.iso"
+                        >
+                            <v-icon icon="mdi-arrow-expand" size="14" />
+                        </button>
+                    </span>
                 </div>
                 <span v-if="dragging && over === cell.iso && dropHint(dragging, cell.iso)" class="cal__hint">
                     {{ dropHint(dragging, cell.iso) }}
@@ -332,7 +348,7 @@ async function confirmReschedule() {
                         @click="openTask(t, $event)"
                     >
                         <span v-if="initials(t)" class="cal__avatar" :title="t.assignee">{{ initials(t) }}</span>
-                        <span class="cal__task-txt">{{ t.ref }} {{ t.title }}</span>
+                        <span class="cal__task-txt"><span class="cal__ref">{{ t.ref }}</span> {{ t.title }}</span>
                     </li>
                 </ul>
             </div>
@@ -393,7 +409,7 @@ async function confirmReschedule() {
                     @dragend="onDragEnd"
                     @click="openTask(t, $event)"
                 >
-                    <span class="cal__task-txt">{{ t.ref }} {{ t.title }}</span>
+                    <span class="cal__task-txt"><span class="cal__ref">{{ t.ref }}</span> {{ t.title }}</span>
                 </li>
             </ul>
         </div>
@@ -494,14 +510,14 @@ async function confirmReschedule() {
 }
 
 /*
- * Fixed height: 14px padding + 20px date + 4px gap + five 18px tasks with 3px
- * gaps (102px). The height doesn't depend on how many tasks the day has; a
+ * Fixed height: 14px padding + 20px date + 4px gap + five 22px tasks with 3px
+ * gaps (122px). The height doesn't depend on how many tasks the day has; a
  * longer list scrolls inside it.
  */
 .cal__cell {
     display: flex;
     flex-direction: column;
-    block-size: 142px;
+    block-size: 160px;
     overflow: hidden;
     padding: 6px 6px 8px;
     border-inline-end: 1px solid var(--tv-rule);
@@ -551,7 +567,10 @@ async function confirmReschedule() {
     padding: 2px 6px 2px 8px;
     border-radius: 3px;
     background: var(--tv-sub);
-    font-size: var(--tv-size-label);
+    /* Same type as a task-list row: 13px medium title, 12px medium number. */
+    font-size: var(--tv-size-body);
+    font-weight: 500;
+    color: var(--tv-ink);
     cursor: pointer;
     overflow: hidden;
 }
@@ -570,18 +589,23 @@ async function confirmReschedule() {
     flex: none;
     display: grid;
     place-items: center;
-    inline-size: 14px;
-    block-size: 14px;
+    inline-size: 16px;
+    block-size: 16px;
     border-radius: 50%;
     background: var(--tv-brand-soft);
     color: var(--tv-brand);
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 600;
     line-height: 1;
 }
 
 .cal__cell {
     cursor: cell;
+}
+
+.cal__ref {
+    font-size: var(--tv-size-meta);
+    font-weight: 500;
 }
 
 .cal__task-txt {
@@ -650,13 +674,13 @@ async function confirmReschedule() {
 
 .cal__grid .cal__tasks .cal__task {
     flex: none;
-    block-size: 18px;
-    line-height: 14px;
+    block-size: 22px;
+    line-height: 18px;
 }
 
-/* Exactly five rows tall; the rest scroll. */
+/* Exactly five rows tall (5 × 22px + 4 × 3px gaps); the rest scroll. */
 .cal__grid .cal__tasks {
-    max-block-size: 102px;
+    max-block-size: 122px;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
@@ -676,8 +700,15 @@ async function confirmReschedule() {
     block-size: 20px;
 }
 
+/* + then expand, top right of the day. */
+.cal__tools {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
 /* Same affordance as the expandable panels elsewhere: diagonal arrows, top right. */
-.cal__expand {
+.cal__tool {
     display: grid;
     place-items: center;
     inline-size: 20px;
@@ -690,10 +721,26 @@ async function confirmReschedule() {
     cursor: pointer;
 }
 
-.cal__expand:hover,
-.cal__expand:focus-visible {
+.cal__tool:hover,
+.cal__tool:focus-visible {
     background: var(--tv-sub-2);
     color: var(--tv-ink);
+}
+
+/*
+ * Every day has a +, so it stays quiet until the day is hovered or the button
+ * has focus; 42 full-strength icons would drown the dates.
+ */
+.cal__add {
+    color: var(--tv-faint);
+    opacity: 0.55;
+    transition: opacity 80ms, color 80ms;
+}
+
+.cal__cell:hover .cal__add,
+.cal__add:focus-visible {
+    opacity: 1;
+    color: var(--tv-brand);
 }
 
 .cal-day {
@@ -811,10 +858,10 @@ async function confirmReschedule() {
 .cal-day__item.st-closed .cal-day__glyph { color: var(--tv-st-done); }
 
 .cal-day__ref {
-    font-size: var(--tv-size-label);
-    font-weight: 600;
+    font-size: var(--tv-size-meta);
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
-    color: var(--tv-ink-2);
+    color: var(--tv-ink);
 }
 
 .cal-day__name {
@@ -827,6 +874,8 @@ async function confirmReschedule() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: var(--tv-size-body);
+    font-weight: 500;
     color: var(--tv-ink);
 }
 
@@ -834,12 +883,14 @@ async function confirmReschedule() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--tv-size-label);
+    font-size: var(--tv-size-meta);
+    font-weight: 500;
     color: var(--tv-muted);
 }
 
 .cal-day__status {
-    font-size: var(--tv-size-label);
+    font-size: var(--tv-size-meta);
+    font-weight: 500;
     color: var(--tv-muted);
     white-space: nowrap;
 }
