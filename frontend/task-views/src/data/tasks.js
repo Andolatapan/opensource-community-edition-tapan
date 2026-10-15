@@ -171,7 +171,11 @@ function toTask(row, statusNames, groupNames = {}, projects = {}) {
         assignee: row.Assigned || row.asgnName || row.usrName || "Unassigned",
         /** The id the change-assignee endpoint needs; the name alone cannot save. */
         assigneeId: Number(row.assign_to) || null,
-        due: normaliseDate(row.due_date),
+        // The *_local fields are the day in the viewer's timezone; the raw
+        // columns are UTC and can sit on the neighbouring day.
+        due: normaliseDate(row.due_date_local ?? row.due_date),
+        /** Start date — where the calendar schedules the task. */
+        start: normaliseDate(row.start_date_local ?? row.gantt_start_date),
         /*
          * estimated_hours is stored in seconds (86400 = 24h). Everywhere else in
          * the app shows hours, so the raw value was leaking into the sheet as

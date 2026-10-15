@@ -2162,6 +2162,8 @@ function closePopup() {
         if (typeof CONTROLLER !== 'undefined' && CONTROLLER === 'taskviews') {
             history.pushState({}, null, new_url || window.location.pathname);
             localStorage.setItem("last_url", '');
+            // Edits made inside the panel save without raising task-saved.
+            notifyTaskSaved();
             return;
         }
 

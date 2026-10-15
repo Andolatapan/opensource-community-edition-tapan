@@ -4261,6 +4261,179 @@ class EasycasesController extends AppController
         exit;
     }
 
+    /**
+     * A task the signed-in user may reschedule: an active task (not a reply) in
+     * one of their projects in this company. Null otherwise.
+     */
+    private function findSchedulableTask($caseId): ?array
+    {
+        if (!ctype_digit((string)$caseId)) {
+            return null;
+        }
+
+        return $this->easycasesTable->find()
+            ->select(['Easycases.id', 'Easycases.project_id', 'Easycases.assign_to', 'Easycases.gantt_start_date', 'Easycases.due_date'])
+            ->innerJoin(['ProjectUsers' => 'project_users'], [
+                fn($exp) => $exp->equalFields('ProjectUsers.project_id', 'Easycases.project_id'),
+                'ProjectUsers.user_id' => SES_ID,
+                'ProjectUsers.company_id' => SES_COMP,
+            ])
+            ->where([
+                'Easycases.id' => (int)$caseId,
+                'Easycases.istype' => EasycasesTable::TYPE_POST,
+                'Easycases.isactive' => EasycasesTable::IS_ACTIVE,
+            ])
+            ->disableHydration()
+            ->disableResultsCasting()
+            ->first();
+    }
+
+    /** A stored UTC datetime as a Y-m-d day in the user's timezone, or null. */
+    private function localDay($utc): ?string
+    {
+        if (empty($utc) || !CommonUtility::checkValidDate((string)$utc)) {
+            return null;
+        }
+        $day = $this->Tmzone->GetDateTime(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, $utc, 'date');
+
+        return $day ? substr((string)$day, 0, 10) : null;
+    }
+
+    private static function isIsoDay(string $date): bool
+    {
+        $d = \DateTime::createFromFormat('!Y-m-d', $date);
+
+        return $d !== false && $d->format('Y-m-d') === $date;
+    }
+
+    /**
+     * Why a task cannot be scheduled on $date (a Y-m-d day in the user's
+     * timezone), or null when it can. The calendar runs the same rules before it
+     * offers a drop; they are repeated here because the browser is not the
+     * authority.
+     */
+    private function rescheduleError(array $task, string $date): ?string
+    {
+        if (!self::isIsoDay($date)) {
+            return __('Pick a valid date.');
+        }
+        $today = $this->Tmzone->GetDateTime(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, GMT_DATETIME, 'date');
+        if ($date < $today) {
+            return __('A task can\'t be scheduled on a past date.');
+        }
+        $due = $this->localDay($task['due_date']);
+        if ($due && $date > $due) {
+            return __('This task is due on {0}; schedule it on or before its due date.', date('M j, Y', strtotime($due)));
+        }
+
+        return null;
+    }
+
+    /**
+     * What the task's assignee already has scheduled on a day: the count and
+     * estimated hours of their other open tasks placed on that day. "Placed"
+     * matches the calendar — the start date, or the due date when there is no
+     * start date. POST caseId, date (Y-m-d).
+     */
+    public function taskWorkload()
+    {
+        $this->getRequest()->allowMethod(['post']);
+        $date = (string)$this->getRequest()->getData('date', '');
+        $task = $this->findSchedulableTask($this->getRequest()->getData('caseId', ''));
+        if (!$task) {
+            return $this->jsonResponse(['success' => 'No', 'message' => __('Task not found.')]);
+        }
+        if (!self::isIsoDay($date)) {
+            return $this->jsonResponse(['success' => 'No', 'message' => __('Pick a valid date.')]);
+        }
+
+        $assignee = (int)$task['assign_to'];
+        if (!$assignee) {
+            return $this->jsonResponse(['success' => 'Yes', 'assigned' => false]);
+        }
+
+        // The user's day, as a UTC range over the stored columns.
+        $next = date('Y-m-d', strtotime($date . ' +1 day'));
+        $from = $this->Tmzone->convert_to_utc(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, $date . ' 00:00:00', 'datetime');
+        $to = $this->Tmzone->convert_to_utc(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, $next . ' 00:00:00', 'datetime');
+
+        $query = $this->easycasesTable->find();
+        $row = $query
+            ->select([
+                'tasks' => $query->func()->count($query->identifier('Easycases.id')),
+                'seconds' => $query->func()->sum($query->identifier('Easycases.estimated_hours')),
+            ])
+            ->innerJoin(['Projects' => 'projects'], [
+                fn($exp) => $exp->equalFields('Projects.id', 'Easycases.project_id'),
+                'Projects.company_id' => SES_COMP,
+                'Projects.isactive' => 1,
+            ])
+            ->where([
+                'Easycases.assign_to' => $assignee,
+                'Easycases.id !=' => (int)$task['id'],
+                'Easycases.istype' => EasycasesTable::TYPE_POST,
+                'Easycases.isactive' => EasycasesTable::IS_ACTIVE,
+                'Easycases.legend NOT IN' => [EasycasesTable::LEGEND_CLOSED, EasycasesTable::LEGEND_RESOLVED],
+                'OR' => [
+                    ['Easycases.gantt_start_date >=' => $from, 'Easycases.gantt_start_date <' => $to],
+                    [
+                        'OR' => [
+                            'Easycases.gantt_start_date IS' => null,
+                            // Legacy MySQL rows store "no date" as a zero date.
+                            'Easycases.gantt_start_date <' => '1971-01-01 00:00:00',
+                        ],
+                        'Easycases.due_date >=' => $from,
+                        'Easycases.due_date <' => $to,
+                    ],
+                ],
+            ])
+            ->disableHydration()
+            ->first();
+
+        return $this->jsonResponse([
+            'success' => 'Yes',
+            'assigned' => true,
+            'date' => $date,
+            'tasks' => (int)($row['tasks'] ?? 0),
+            'hours' => round(((float)($row['seconds'] ?? 0)) / 3600, 2),
+        ]);
+    }
+
+    /**
+     * Move a task's start date — the calendar's drag and drop. Only the start
+     * date changes; the due date is the limit, not something a drop moves.
+     * POST caseId, date (Y-m-d in the user's timezone).
+     */
+    public function rescheduleTask()
+    {
+        $this->getRequest()->allowMethod(['post']);
+        $date = (string)$this->getRequest()->getData('date', '');
+        $task = $this->findSchedulableTask($this->getRequest()->getData('caseId', ''));
+        if (!$task) {
+            return $this->jsonResponse(['success' => 'No', 'message' => __('Task not found.')]);
+        }
+        $error = $this->rescheduleError($task, $date);
+        if ($error) {
+            return $this->jsonResponse(['success' => 'No', 'message' => $error]);
+        }
+        // The same rule ajaxChangeDueDate applies to any date change.
+        if ($this->taskDependency($task['id']) == 'No') {
+            return $this->jsonResponse(['success' => 'No', 'message' => __('Dependant tasks are not closed.')]);
+        }
+
+        // Stamped with the current time of day, as ajaxChangeDueDate does, then
+        // stored in UTC.
+        $time = $this->Tmzone->GetDateTime(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, GMT_DATETIME, 'onlytime');
+        $start = $this->Tmzone->convert_to_utc(SES_TIMEZONE, TZ_GMT, TZ_DST, TZ_CODE, $date . ' ' . $time, 'datetime');
+
+        $this->easycasesTable->updateAll(
+            ['gantt_start_date' => $start, 'updated_by' => SES_ID, 'dt_created' => GMT_DATETIME],
+            ['id' => $task['id'], 'project_id' => $task['project_id']]
+        );
+
+        return $this->jsonResponse(['success' => 'Yes', 'start_date' => $date]);
+    }
+
     public function ajaxExportcsv()
     {
         $this->viewBuilder()->setLayout('ajax');
